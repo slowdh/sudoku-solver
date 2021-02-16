@@ -1,46 +1,49 @@
 import numpy as np
 
 
-def get_next_possible_space(board):
-    for i in range(9):
-        for j in range(9):
-            if board[i,j] == 0:
-                return (i, j)
-    return (None, None)
+class Sudoku:
+    def __init__(self, board):
+        self.board = board
 
-def is_possible(i, j, n):
-    global board
-    if n in board[i,:] or n in board[:,j]:
-        return False
-    x0 = (i // 3) * 3
-    y0 = (j // 3) * 3
-    if n in board[x0:x0+3, y0:y0+3]:
-        return False
-    return True
+    def __str__(self):
+        ret = []
+        for idx, row in enumerate(board):
+            pretty_row = ''
+            if idx == 3 or idx == 6:
+                ret.append("---------------------")
+            for i, num in enumerate(row):
+                if i == 3 or i == 6:
+                    pretty_row += '| '
+                pretty_row += str(num) + ' '
+            ret.append(pretty_row)
+        return '\n'.join(ret)
 
-def solve(board):
-    i, j = get_next_possible_space(board)
-    if i is None:
-        return (True, board)
-    for num in range(1, 10):
-        if is_possible(i, j, num):
-            board[i,j] = num
-            boolean, new_board = solve(board)
-            if boolean:
-                return (True, new_board)
-            board[i, j] = 0
-    return (False, board)
+    def get_next_valid_space(self):
+        for i in range(9):
+            for j in range(9):
+                if self.board[i][j] == 0:
+                    return (i, j)
+        return (None, None)
 
-def pretty_print(board):
-    for idx, row in enumerate(board):
-        if idx == 3 or idx == 6:
-            print("---------------------")
-        for i, num in enumerate(row):
-            if i == 3 or i == 6:
-                print('|', end=" ")
-            print(num, end=" ")
-        print()
-    print()
+    def is_valid(self, i, j, n):
+        if n in self.board[i, :] or n in self.board[:, j]:
+            return False
+        x = (i // 3) * 3
+        y = (j // 3) * 3
+        if n in board[x:x + 3, y:y + 3]:
+            return False
+        return True
+
+    def solve(self):
+        i, j = self.get_next_valid_space()
+        if i is not None:
+            for n in range(1, 10):
+                if self.is_valid(i, j, n):
+                    self.board[i][j] = n
+                    self.solve()
+                    self.board[i][j] = 0
+            return
+        print(self)
 
 
 sample_board = [
@@ -55,7 +58,8 @@ sample_board = [
     [4,0,0,0,1,0,0,0,7]
 ]
 board = np.array(sample_board)
-pretty_print(solve(board)[1])
+a = Sudoku(board)
+a.solve()
 
 """
 >>>
