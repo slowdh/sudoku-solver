@@ -1,5 +1,7 @@
 import cv2
 import numpy as np
+import tensorflow as tf
+from tensorflow.keras.models import load_model
 
 
 def get_distance(pt1, pt2):
@@ -64,17 +66,28 @@ def find_board_contour(image):
             break
 
     if puzzle_contour is None:
-        raise ValueError("Could not find proper puzzle contour")
+        print("Could not find proper puzzle contour")
     return puzzle_contour.reshape((4, 2))
 
+def get_warped_board(image, contour):
+    contour = find_board_contour(image)
+    warped_board = four_point_perspective_transform(image, contour)
+    return warped_board
 
-### test section
-img = cv2.imread('test-images/opencv_sudoku_puzzle_sudoku_puzzle.jpg')
-puzzle_countour = locate_board(img)
-original = order_points(puzzle_countour)
-destination, size = get_transformed_points(puzzle_countour)
+def ocr_board(warped, model):
+    img = cv2.resize(warped, dsize=(252, 252), interpolation=cv2.INTER_LINEAR)
+    board = np.zeros(shape=(9, 9), dtype='uint8')
+    mapping_dict = {i:j for i, j in zip(range(11), list(range(10)) + [0])}
+    step = 28
+    for i in range(9):
+        for j in range(9):
+            x_start = i * step
+            x_end = (i + 1) * step
+            y_start = j * step
+            y_end = (j + 1) * step
 
-transformed = four_point_perspective_transform(img, puzzle_countour)
-cv2.imshow("aa", img)
-cv2.imshow("a", transformed)
-cv2.waitKey(0)
+            img_input = img[x_start:x_end, y_start:y_end]
+            img_input = np.expand_dims(cv2.cvtColor(img_input, cv2.COLOR_BGR2GRAY), axis=(0, 3))
+            argmax = np.argmax(model(img_input))
+            board[i, j] = mapping_dict[argmax]
+    return board
