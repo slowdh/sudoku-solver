@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.models import load_model
+from skimage.segmentation import clear_border
 
 
 def get_distance(pt1, pt2):
@@ -74,11 +75,31 @@ def get_warped_board(image, contour):
     warped_board = four_point_perspective_transform(image, contour)
     return warped_board
 
-def ocr_board(warped, model):
-    img = cv2.resize(warped, dsize=(252, 252), interpolation=cv2.INTER_LINEAR)
+def extract_digit_from_cell(cell):
+    cell = cv2.cvtColor(cell, cv2.COLOR_BGR2GRAY)
+    thresh = cv2.threshold(cell, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+    thresh = cv2.bitwise_not(thresh)
+    thresh = clear_border(thresh)
+    contours, hierarchy = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    if len(contours) == 0:
+        return None
+    c = max(contours, key=cv2.contourArea)
+    mask = np.zeros(thresh.shape, dtype="uint8")
+    cv2.drawContours(mask, [c], -1, 255, -1)
+    (h, w) = thresh.shape
+    percentFilled = cv2.countNonZero(mask) / float(w * h)
+
+    if percentFilled < 0.03:
+        return None
+    digit = cv2.bitwise_and(thresh, thresh, mask=mask)
+    return digit
+
+def ocr_board(warped, model, input_shape, debugging=False):
+    img = cv2.resize(warped, dsize=(input_shape[1] * 9, input_shape[1] * 9), interpolation=cv2.INTER_LINEAR)
     board = np.zeros(shape=(9, 9), dtype='uint8')
     mapping_dict = {i:j for i, j in zip(range(11), list(range(10)) + [0])}
-    step = 28
+    step = input_shape[0]
     for i in range(9):
         for j in range(9):
             x_start = i * step
@@ -87,7 +108,34 @@ def ocr_board(warped, model):
             y_end = (j + 1) * step
 
             img_input = img[x_start:x_end, y_start:y_end]
-            img_input = np.expand_dims(cv2.cvtColor(img_input, cv2.COLOR_BGR2GRAY), axis=(0, 3))
-            argmax = np.argmax(model(img_input))
-            board[i, j] = mapping_dict[argmax]
+            digit = extract_digit_from_cell(img_input)
+            if digit is None:
+                digit_ocr = 0
+            else:
+                img_input = np.expand_dims(digit, axis=2)
+                if input_shape[-1] == 3:
+                    img_input = cv2.cvtColor(img_input, cv2.COLOR_GRAY2RGB)
+                img_tensor = np.expand_dims(img_input, axis=0)
+                argmax = np.argmax(model(img_tensor))
+                digit_ocr = mapping_dict[argmax]
+                if debugging:
+                    cv2.imshow("window", img_input)
+                    print(digit_ocr)
+                    cv2.waitKey(0)
+            board[i, j] = digit_ocr
     return board
+
+def visualize_output_on_image(board, warped):
+    h, w = warped.shape[0] // 9, warped.shape[1] // 9
+    for i in range(9):
+        for j in range(9):
+            x_start = i * w
+            x_end = (i + 1) * w
+            y_start = j * h
+            y_end = (j + 1) * h
+            x_diff = int((x_end - x_start) * 0.4)
+            y_diff = int((y_end - y_start) * 0.8)
+            x_org = x_start + x_diff
+            y_org = y_start + y_diff
+            cv2.putText(warped, str(board[i][j]), (x_org, y_org), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+    return warped
