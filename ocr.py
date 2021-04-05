@@ -3,6 +3,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras.models import load_model
 from skimage.segmentation import clear_border
+from sudoku import Sudoku
 
 
 def get_distance(pt1, pt2):
@@ -20,7 +21,7 @@ def order_points(points):
     ret[3] = points[np.argmax(d)] # bottom left
     return ret
 
-def get_transformed_points(points):
+def get_destination_points_and_size(points):
     horizontal_top = get_distance(points[0], points[1])
     horizontal_bottom = get_distance(points[2], points[3])
     vertical_left = get_distance(points[0], points[3])
@@ -37,7 +38,7 @@ def get_transformed_points(points):
 
 def four_point_perspective_transform(image, points):
     points = order_points(points)
-    destination, size = get_transformed_points(points)
+    destination, size = get_destination_points_and_size(points)
     mat = cv2.getPerspectiveTransform(points, destination)
     transformed = cv2.warpPerspective(image, mat, size)
     return transformed
@@ -68,7 +69,7 @@ def find_board_contour(image):
 
     if puzzle_contour is None:
         print("Could not find proper puzzle contour")
-    return puzzle_contour.reshape((4, 2))
+    return order_points(puzzle_contour.reshape((4, 2)))
 
 def get_warped_board(image, contour):
     contour = find_board_contour(image)
@@ -125,17 +126,69 @@ def ocr_board(warped, model, input_shape, debugging=False):
             board[i, j] = digit_ocr
     return board
 
-def visualize_output_on_image(board, warped):
+def visualize_output_on_warped_image(original, solved, warped):
     h, w = warped.shape[0] // 9, warped.shape[1] // 9
     for i in range(9):
         for j in range(9):
-            x_start = i * w
-            x_end = (i + 1) * w
-            y_start = j * h
-            y_end = (j + 1) * h
-            x_diff = int((x_end - x_start) * 0.4)
-            y_diff = int((y_end - y_start) * 0.8)
-            x_org = x_start + x_diff
-            y_org = y_start + y_diff
-            cv2.putText(warped, str(board[i][j]), (x_org, y_org), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+            if original[i, j] == 0:
+                x_start = j * w
+                y_start = i * h
+                x_diff = int(w * 0.4)
+                y_diff = int(h * 0.7)
+                x_org = x_start + x_diff
+                y_org = y_start + y_diff
+                cv2.putText(warped, str(solved[i, j]), (x_org, y_org), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 255), 3)
+
     return warped
+
+def get_points(img):
+    h, w = img.shape[:2]
+    points = np.array([
+        [0, 0],
+        [w, 0],
+        [w, h],
+        [0, h]], dtype="float32")
+    return points
+
+def solve_sudoku(image_path='test-images/opencv_sudoku_puzzle_sudoku_puzzle.jpg', ocr_model_path='weights/transferred.h5'):
+    model = load_model(ocr_model_path)
+    img = cv2.imread(image_path)
+
+    puzzle_countour = find_board_contour(img)
+    destination, size = get_destination_points_and_size(puzzle_countour)
+    warped = get_warped_board(img, destination)
+    board = ocr_board(warped, model, (28, 28, 1), debugging=False)
+    sudoku = Sudoku(board.copy())
+    sudoku.solve()
+    solved = sudoku.board
+    warped = visualize_output_on_warped_image(board, solved, warped)
+    warped_to_original = four_point_perspective_transform(warped, puzzle_countour)
+    
+    # WIP #
+    points = get_points(warped)
+    mat = cv2.getPerspectiveTransform(points, puzzle_countour)
+    transformed = cv2.warpPerspective(warped, mat, img.shape[:2])
+
+    cv2.imshow("Answer", overlayed)
+    cv2.waitKey(0)
+
+
+# ### test section
+# model = load_model('weights/transferred.h5')
+# img = cv2.imread('test-images/opencv_sudoku_puzzle_sudoku_puzzle.jpg')
+#
+# puzzle_countour = find_board_contour(img)
+# original = order_points(puzzle_countour)
+# destination, size = get_destination_points_and_size(puzzle_countour)
+# warped = get_warped_board(img, destination)
+# board = ocr_board(warped, model, (28, 28, 1), debugging=False)
+# sudoku = Sudoku(board.copy())
+# sudoku.solve()
+# solved = sudoku.board
+# warped = visualize_output_on_image(board, solved, warped)
+#
+# print(board)
+# cv2.imshow("a", warped)
+# cv2.waitKey(0)
+
+solve_sudoku()
