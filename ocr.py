@@ -1,9 +1,12 @@
 import cv2
 import numpy as np
-from tensorflow.keras.models import load_model
 from skimage.segmentation import clear_border
 from sudoku import Sudoku
 
+def show_img(image, winname='Output'):
+    cv2.imshow(winname, image)
+    if cv2.waitKey(0) & 0xFF == ord('q'):
+        return
 
 def get_points(img):
     h, w = img.shape[:2]
@@ -34,14 +37,6 @@ def get_adaptive_font_size(cell_height):
     scale = cell_height / 44
     size = cv2.getTextSize('0', cv2.FONT_HERSHEY_SIMPLEX, scale, 2)[0]
     return scale, size
-
-def get_transformation_destination_points(cell_size=28):
-    destination = np.array([
-        [0, 0],
-        [cell_size * 9, 0],
-        [cell_size * 9, cell_size * 9],
-        [0, cell_size * 9]], dtype="float32")
-    return destination
 
 def get_transformation_destination_points_and_size(contour):
     horizontal_top = get_distance(contour[0], contour[1])
@@ -118,11 +113,14 @@ def get_board_contour(image, c=3, epsilon=0.02):
 
     if puzzle_contour is None:
         print("Could not find proper puzzle contour")
+        return None
     points_ordered = order_points(puzzle_contour.reshape((4, 2)))
     return points_ordered
 
 def get_warped_board_with_contour(image):
     contour = get_board_contour(image)
+    if contour is None:
+        return None, None
     destination, size = get_transformation_destination_points_and_size(contour)
     warped_board = four_point_perspective_transform(image=image, source=contour, destination=destination, size=size)
     return warped_board, contour
@@ -153,48 +151,68 @@ def ocr_board(warped, model, debug=False):
                     cv2.waitKey(0)
     return board
 
-def solve_board(original_board):
-    sudoku = Sudoku(original_board.copy())
-    boolean = sudoku.solve()
-    return boolean, sudoku.board
-
-def visualize_output_on_original_image(original_board, solved, warped, contour, original_img):
-    # put solved digit text on blank image where original sudoku board's cell value == 0
-    h, w = warped.shape[0] // 9, warped.shape[1] // 9
+# put solved digit text on blank image
+def draw_digit_on_blank_image(img_size, cell_indices, board):
+    h, w = img_size[0] // 9, img_size[1] // 9
     font_scale, font_size = get_adaptive_font_size(h)
-    zero_indices = zip(*np.where(original_board == 0))
-    blank_img = np.zeros(warped.shape, dtype='uint8')
-    for i, j in zero_indices:
+    blank_img = np.zeros((img_size[0], img_size[1], 3), dtype='uint8')
+
+    for i, j in cell_indices:
         x_cen = j * w + w // 2
         y_cen = i * h + h // 2
         x_diff = font_size[0] // 2
         y_diff = font_size[1] // 2
         x_org = x_cen - x_diff
         y_org = y_cen + y_diff
-        cv2.putText(blank_img, str(solved[i, j]), (x_org, y_org), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 255, 255), 2)
+        cv2.putText(blank_img, str(board[i, j]), (x_org, y_org), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 255, 255), 2)
+    return blank_img
+
+def solve_board(original_board):
+    sudoku = Sudoku(original_board.copy())
+    boolean, board = sudoku.solve()
+    return boolean, board
+
+def visualize_output_on_original_image(original_board, solved, warped, contour, original_img, is_solvable):
+    if is_solvable:
+        zero_indices = zip(*np.where(original_board == 0))
+        digit_img = draw_digit_on_blank_image(warped.shape[:2], zero_indices, solved)
+    else:
+        non_zero_indices = zip(*np.where(original_board != 0))
+        digit_img = draw_digit_on_blank_image(warped.shape[:2], non_zero_indices, original_board)
 
     warped_points = get_points(warped)
-    digit_transfomed = four_point_perspective_transform(blank_img, warped_points, contour, (original_img.shape[1], original_img.shape[0]))
+    digit_transfomed = four_point_perspective_transform(digit_img, warped_points, contour, (original_img.shape[1], original_img.shape[0]))
     overlayed = add_imgs(original_img, digit_transfomed)
     return overlayed
 
-def solve_sudoku(image_path, ocr_model_path, debug=False):
-    model = load_model(ocr_model_path)
-    img = cv2.imread(image_path)
-
-    warped, contour = get_warped_board_with_contour(image=img)
-    unsolved_board = ocr_board(warped, model, debug=debug)
-    is_solvable, solved_board = solve_board(unsolved_board)
-    if is_solvable is False:
-        print("Unable to solve the puzzle. Check OCR")
-        print(solved_board)
-        img_with_digit = img
+def solve_sudoku(image, ocr_model, debug=False, show_output=True):
+    warped, contour = get_warped_board_with_contour(image=image)
+    if warped is None:
+        img_with_digit = image
+        print("Could not find proper puzzle contour")
     else:
-        img_with_digit = visualize_output_on_original_image(unsolved_board, solved_board, warped, contour, img)
+        unsolved_board = ocr_board(warped, ocr_model, debug=debug)
+        is_solvable, solved_board = solve_board(unsolved_board)
+        img_with_digit = visualize_output_on_original_image(unsolved_board, solved_board, warped, contour, image, is_solvable)
+        if is_solvable is False:
+            print("Unable to solve the puzzle. Check OCR")
+            print(Sudoku(solved_board))
 
-    cv2.imshow("Answer", img_with_digit)
-    cv2.waitKey(0)
+    if show_output is True:
+        show_img(img_with_digit, winname='Output')
+    return img_with_digit
 
+# maybe GPU is needed
+def solve_sudoku_on_camera(ocr_model, camera_idx=0):
+    cap = cv2.VideoCapture(camera_idx)
+    cap.set(3, 640)
+    cap.set(4, 480)
 
-# test time!
-solve_sudoku(image_path='test-images/opencv_sudoku_puzzle_sudoku_puzzle.jpg',ocr_model_path='weights/transferred.h5')
+    while cap.isOpened():
+        ret, frame = cap.read()
+        solved = solve_sudoku(frame, ocr_model)
+        cv2.imshow('Answer', solved)
+        if cv2.waitKey(0) & 0xFF == ord('q'):
+            break
+    cap.release()
+    cv2.destroyAllWindows()
