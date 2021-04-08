@@ -82,29 +82,51 @@ def generate_digit_dataset_from_image(image_paths, model_path, save_path=None, c
                 print("Skipping current image.")
             cv2.destroyAllWindows()
 
-# generating .npy file from raw dataset folder
-def get_merged_data_from_folder(file_path):
+def print_data_distribution(img_path):
+    num_imgs = []
+    for i in range(10):
+        num = len(glob.glob(img_path + '/' + str(i) + '/*'))
+        num_imgs.append(num)
+
+    total = sum(num_imgs)
+    print(f"Total: {total} images" + '\n')
+    for i in range(10):
+        print(f"Label: {i}  num: {num_imgs[i]}  ratio: {int(num_imgs[i] / total * 100)}%")
+
+# generating .npz file from raw dataset folder
+def get_np_array_from_imgs(file_path, save_path, seperate_by_label=True, limit=400):
     data = None
     target = None
+
     for i in range(10):
-        paths = glob.glob(file_path + str(i) + '/*')
-        l = len(paths)
-        target_curr = np.array([i] * l)
-        if target is None:
-            target = target_curr
-        else:
-            target = np.concatenate((target, target_curr), axis=0)
-
+        paths = glob.glob(file_path + '/' + str(i) + '/*')
+        target_curr = np.array([i] * min(len(paths), limit))
+        data_curr = None
         for path in paths:
-            img = np.array(Image.open(path).convert('L'))[np.newaxis, ..., np.newaxis]
+            img = cv2.cvtColor(cv2.imread(path), cv2.COLOR_BGR2GRAY)
+            img = img[np.newaxis, ..., np.newaxis]
             assert img.shape == (1, 28, 28, 1)
-            if data is None:
-                data = img
+            if data_curr is None:
+                data_curr = img
             else:
-                data = np.concatenate((data, img), axis=0)
+                data_curr = np.concatenate((data_curr, img), axis=0)
+        data_curr = data_curr[:limit]
 
-    np.save(file_path + 'data.npy', data)
-    np.save(file_path + 'target.npy', target)
+        if seperate_by_label:
+            np.savez(save_path + '/' + str(i) + '_dataset.npz', x=data_curr, y=target_curr)
+            print("Data saved at:", save_path + '/' + str(i) + '_data.npz')
+        else:
+            if data is None:
+                data = data_curr
+            else:
+                data = np.concatenate((data, data_curr), axis=0)
+            if target is None:
+                target = target_curr
+            else:
+                target = np.concatenate((target, target_curr), axis=0)
+    if not seperate_by_label:
+        np.savez(save_path + '/dataset.npz', x=data, y=target)
+        print("Data saved at:", save_path + '/' + 'data.npz')
 
 def shuffle_and_split(x, y, test_split=0.3):
     permutation = np.random.permutation(len(x))
@@ -113,4 +135,18 @@ def shuffle_and_split(x, y, test_split=0.3):
     split_idx = int(len(x) * (1 - test_split))
     x_train, x_test = x[:split_idx], x[split_idx:]
     y_train, y_test = y[:split_idx], y[split_idx:]
-    return (x_train, x_test), (y_train, y_test)
+    return (x_train, y_train), (x_test, y_test)
+
+# there should be a better way than this, but it works in reasonable time.
+def modify_dataset_image_shape(imgs, output_size=(28,28)):
+    ret = None
+    m = imgs.shape[0]
+    for i in range(m):
+        extracted = imgs[i]
+        modified = cv2.resize(extracted, output_size, interpolation=cv2.INTER_LINEAR)[np.newaxis,...]
+        if ret is None:
+            ret = modified
+        else:
+            ret = np.concatenate((ret, modified), axis=0)
+        print(f"Processed {i + 1} / {m}, Output shape: {ret.shape}")
+    return ret
