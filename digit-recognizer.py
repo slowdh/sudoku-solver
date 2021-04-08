@@ -1,15 +1,15 @@
 import tensorflow as tf
 import numpy as np
 from scipy.io import loadmat
-from tensorflow.keras.models import Sequential
+from tensorflow.keras.models import Sequential, load_model, Model
 from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, BatchNormalization, Dropout
 
 
 # lets train simple neural network model
 
 # first of all, we need data set for sudoku
-# svhn digits (for 0 ~ 9) + noise images (for None or blank cell) should work.
-def load_data(noise_level=3., mode='svhn', add_zero=False):
+# make dataset: svhn digits (for 0 ~ 9) + noise images (for None or blank cell)
+def load_data(noise_level=3., mode='mnist', add_zero=False):
     if mode == 'svhn':
         train = loadmat('data/svhn_train_32x32')
         test = loadmat('data/svhn_test_32x32')
@@ -50,10 +50,8 @@ def load_data(noise_level=3., mode='svhn', add_zero=False):
 
     return data
 
-
-# lets build model!
-# total params: 61,963
-def get_light_model(input_shape, lr=3e-4, add_zero=False):
+# build model!
+def get_light_model(input_shape, add_zero=False):
     num_last_units = 10 if add_zero is False else 11
 
     model = Sequential([
@@ -70,12 +68,9 @@ def get_light_model(input_shape, lr=3e-4, add_zero=False):
         Flatten(),
         Dense(num_last_units, activation='softmax')
     ])
-
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=lr), loss='sparse_categorical_crossentropy', metrics=['accuracy'])
     return model
 
-# total_params: 314,571
-def get_heavy_model(input_shape, lr = 3e-4, add_zero=False):
+def get_heavy_model(input_shape, add_zero=False):
     num_last_units = 10 if add_zero is False else 11
 
     model = Sequential([
@@ -87,35 +82,34 @@ def get_heavy_model(input_shape, lr = 3e-4, add_zero=False):
         BatchNormalization(),
         Dropout(0.3),
         Conv2D(64, 3, padding='same', activation='relu'),
+        BatchNormalization(),
         MaxPooling2D(2),
         Dropout(0.3),
         Conv2D(128, 3, padding='same', activation='relu'),
         BatchNormalization(),
         Dropout(0.3),
         Conv2D(128, 3, padding='same', activation='relu'),
+        BatchNormalization(),
+        Conv2D(32, 3, padding='same', activation='relu'),
         Conv2D(32, 1, padding='same', activation='relu'),
         Flatten(),
         Dense(num_last_units, activation='softmax')
     ])
-
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=lr), loss='sparse_categorical_crossentropy', metrics=['accuracy'])
     return model
 
-# train time!
-def train_model(file_path='weights/weights_svhn.h5', lr = 3e-4, input_shape=(32,32,3)):
-    check_point = tf.keras.callbacks.ModelCheckpoint(filepath=file_path)
-    (x_train, y_train), (x_test, y_test) = load_data(mode='svhn')
-    model = get_light_model(input_shape)
-    # model = tf.keras.models.load_model(filepath=file_path)
+def get_transfer_model(model_path='weights/weights_mnist.h5'):
+    original_model = load_model(model_path)
+    original_model.trainable = False
+
+    inputs = original_model.input
+    flatten_output = original_model.layers[-2].output
+    outputs = Dense(10, activation='softmax')(flatten_output)
+    transfer_model = Model(inputs, outputs)
+    return transfer_model
+
+def train_model(data, model_path, save_path, lr=3e-4):
+    model = load_model(model_path)
+    check_point = tf.keras.callbacks.ModelCheckpoint(filepath=save_path)
+    (x_train, y_train), (x_test, y_test) = data
     model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=lr), loss='sparse_categorical_crossentropy',metrics=['accuracy'])
-    model.fit(x=x_train, y=y_train, batch_size=128, epochs=20, verbose=1, validation_data=(x_test, y_test), callbacks=[check_point])
-
-
-# train_model()
-
-# want to test on empty cell?
-# model = tf.keras.models.load_model('weights/weights_light_v1.h5')
-# none_img = np.full((1, 32, 32, 3), 0, dtype='uint8')
-# prediction = np.argmax(model.predict(none_img))
-# print(prediction)
-# # -> 10!
+    model.fit(x=x_train, y=y_train, batch_size=128, epochs=100, verbose=1, validation_data=(x_test, y_test), callbacks=[check_point])
