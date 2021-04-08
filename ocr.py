@@ -125,11 +125,10 @@ def get_warped_board_with_contour(image):
     warped_board = four_point_perspective_transform(image=image, source=contour, destination=destination, size=size)
     return warped_board, contour
 
-def ocr_board(warped, model, debug=False):
-    gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-    gray = cv2.resize(gray, dsize=(252, 252), interpolation=cv2.INTER_LINEAR)
+def ocr_board(warped, model, preprocess_cell=False, debug=False):
+    resized = cv2.resize(warped, dsize=(252, 252), interpolation=cv2.INTER_LINEAR)
     board = np.zeros(shape=(9, 9), dtype='uint8')
-    step = gray.shape[0] // 9
+    step = resized.shape[0] // 9
 
     for i in range(9):
         for j in range(9):
@@ -137,18 +136,26 @@ def ocr_board(warped, model, debug=False):
             x_end = (i + 1) * step
             y_start = j * step
             y_end = (j + 1) * step
-
-            cell = gray[x_start:x_end, y_start:y_end]
-            digit = extract_digit_from_cell(cell=cell)
-            if digit is not None:
-                img_input = np.expand_dims(digit, axis=2)
-                img_tensor = np.expand_dims(img_input, axis=0)
-                digit = np.argmax(model(img_tensor))
+            cell = resized[x_start:x_end, y_start:y_end]
+            digit = 0
+            if preprocess_cell:
+                gray = cv2.cvtColor(cell, cv2.COLOR_BGR2GRAY)
+                assert gray.shape == (28, 28)
+                extracted = extract_digit_from_cell(cell=gray)
+                if extracted is not None:
+                    img_input = np.expand_dims(extracted, axis=(0,3))
+                    digit = np.argmax(model(img_input))
+                    board[i, j] = digit
+            else:
+                assert cell.shape == (28, 28, 3)
+                expanded = np.expand_dims(cell, axis=0)
+                digit = np.argmax(model(expanded))
                 board[i, j] = digit
-                if debug is True:
-                    cv2.imshow("test", img_input)
-                    print(digit)
-                    cv2.waitKey(0)
+
+            if debug is True:
+                cv2.imshow("test", cell)
+                print(digit)
+                cv2.waitKey(0)
     return board
 
 # put solved digit text on blank image
@@ -185,13 +192,13 @@ def visualize_output_on_original_image(original_board, solved, warped, contour, 
     overlayed = add_imgs(original_img, digit_transfomed)
     return overlayed
 
-def solve_sudoku(image, ocr_model, debug=False, show_output=True):
+def solve_sudoku(image, ocr_model, preprocess_cell=False, debug=False, show_output=True):
     warped, contour = get_warped_board_with_contour(image=image)
     if warped is None:
         img_with_digit = image
         print("Could not find proper puzzle contour")
     else:
-        unsolved_board = ocr_board(warped, ocr_model, debug=debug)
+        unsolved_board = ocr_board(warped, ocr_model, preprocess_cell=preprocess_cell, debug=debug)
         is_solvable, solved_board = solve_board(unsolved_board)
         img_with_digit = visualize_output_on_original_image(unsolved_board, solved_board, warped, contour, image, is_solvable)
         if is_solvable is False:
