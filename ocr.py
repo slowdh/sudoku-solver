@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 from skimage.segmentation import clear_border
+from tensorflow.keras.models import load_model
 from sudoku import Sudoku
 
 def show_img(image, winname='Output'):
@@ -198,28 +199,46 @@ def solve_sudoku(image, ocr_model, preprocess_cell=False, debug=False, show_outp
         img_with_digit = image
         print("Could not find proper puzzle contour")
     else:
-        unsolved_board = ocr_board(warped, ocr_model, preprocess_cell=preprocess_cell, debug=debug)
+        unsolved_board = ocr_board(warped, ocr_model, preprocess_cell=preprocess_cell)
         is_solvable, solved_board = solve_board(unsolved_board)
-        img_with_digit = visualize_output_on_original_image(unsolved_board, solved_board, warped, contour, image, is_solvable)
-        if is_solvable is False:
+        if not is_solvable and not debug:
+            img_with_digit = image
             print("Unable to solve the puzzle. Check OCR")
             print(Sudoku(solved_board))
+        else:
+            img_with_digit = visualize_output_on_original_image(unsolved_board, solved_board, warped, contour, image, is_solvable)
 
     if show_output is True:
         show_img(img_with_digit, winname='Output')
     return img_with_digit
 
 # maybe GPU is needed
-def solve_sudoku_on_camera(ocr_model, camera_idx=0):
-    cap = cv2.VideoCapture(camera_idx)
-    cap.set(3, 640)
-    cap.set(4, 480)
+def solve_sudoku_on_camera(ocr_model_path, video_source=0, size=None, save_path=None):
+    model = load_model(ocr_model_path)
+    cap = cv2.VideoCapture(video_source)
+
+    if size is None:
+        w = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+        h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        size = (int(w), int(h))
+    else:
+        cap.set(3, size[0])
+        cap.set(4, size[1])
+    fps = cap.get(cv2.CAP_PROP_FPS)
+
+    if save_path is not None:
+        codec_info_fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        video_writer = cv2.VideoWriter(save_path, codec_info_fourcc, fps, size)
 
     while cap.isOpened():
         ret, frame = cap.read()
-        solved = solve_sudoku(frame, ocr_model)
+        if frame is None:
+            break
+        solved = solve_sudoku(frame, model, show_output=False)
         cv2.imshow('Answer', solved)
-        if cv2.waitKey(0) & 0xFF == ord('q'):
+        if save_path is not None:
+            video_writer.write(solved)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
             break
     cap.release()
     cv2.destroyAllWindows()
