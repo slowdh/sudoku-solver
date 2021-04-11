@@ -213,8 +213,7 @@ def solve_sudoku(image, ocr_model, preprocess_cell=False, debug=False, show_outp
     return img_with_digit
 
 # maybe GPU is needed
-def solve_sudoku_on_camera(ocr_model_path, video_source=0, size=None, save_path=None):
-    model = load_model(ocr_model_path)
+def solve_sudoku_on_camera(ocr_model, video_source=0, size=None, save_path=None):
     cap = cv2.VideoCapture(video_source)
 
     if size is None:
@@ -234,7 +233,7 @@ def solve_sudoku_on_camera(ocr_model_path, video_source=0, size=None, save_path=
         ret, frame = cap.read()
         if frame is None:
             break
-        solved = solve_sudoku(frame, model, show_output=False)
+        solved = solve_sudoku(frame, ocr_model, show_output=False)
         cv2.imshow('Answer', solved)
         if save_path is not None:
             video_writer.write(solved)
