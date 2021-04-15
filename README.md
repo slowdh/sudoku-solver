@@ -34,8 +34,18 @@ solve_sudoku_on_camera(test_model, video_source=0, size=None, save_path=None)
 <img src="https://github.com/slowdh/sudoku-solver/blob/main/data/images/testcase.jpg">
 
 
+## Dataset mismatch and custom dataset
+<img src="https://github.com/slowdh/sudoku-solver/blob/main/data/images/data_mismatch.png">
+
+As you can see, there are clear distribution mismatch in each datasets. Vanilla version digit classifiers learned from mnist/ svhn didn't work well, so I made custom dataset from real world sudoku images and tried transfer learning.
+
+I used sudoku images from (https://github.com/wichtounet/sudoku_dataset) with bunch of sudoku iamges downloaded from internet.
+
+Simple manual image labler function is in 'dataset_generator.py', check if you are interested. (Using pre-trained network, it suggests a predicted lable. All you need is to check for misclassification.)
+
+
 ## TODO
 
 * Update board detection part with deeplearning -> for even more robust model!
-* Try end-to-end multitask model for sharing computation between betecting board / classification of each digit.
+* Try end-to-end multitask model for sharing computation between detecting board / classification of each digit.
 * Try get more data with current model.
